@@ -3,7 +3,7 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 
-export async function getAllStaff() {
+export async function getStaffMembers() {
   try {
     return await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
@@ -12,6 +12,10 @@ export async function getAllStaff() {
     console.error('Failed to get staff:', error);
     return [];
   }
+}
+
+export async function getAllStaff() {
+  return getStaffMembers();
 }
 
 export async function createStaffMember(data: {
@@ -30,6 +34,7 @@ export async function createStaffMember(data: {
       },
     });
     revalidatePath('/staff');
+    revalidatePath('/settings');
     return { success: true, user };
   } catch (error: any) {
     console.error('Failed to create staff member:', error);
@@ -37,10 +42,36 @@ export async function createStaffMember(data: {
   }
 }
 
+export async function updateStaffMember(
+  id: string,
+  data: {
+    name?: string;
+    role?: string;
+    pin?: string;
+    phone?: string;
+  }
+) {
+  try {
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        ...(data.name && { name: data.name }),
+        ...(data.role && { role: data.role as any }),
+        ...(data.pin && { pin: data.pin }),
+        ...(data.phone !== undefined && { phone: data.phone || null }),
+      },
+    });
+    revalidatePath('/staff');
+    revalidatePath('/settings');
+    return { success: true, user };
+  } catch (error: any) {
+    console.error('Failed to update staff member:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 export async function toggleStaffStatus(id: string, currentStatus?: boolean) {
   try {
-    // If your User schema has an isActive field, toggle it; otherwise return success
-    // Using a safe update if isActive exists in schema
     try {
       const user = await prisma.user.findUnique({ where: { id } });
       if (user && 'isActive' in user) {
@@ -50,9 +81,10 @@ export async function toggleStaffStatus(id: string, currentStatus?: boolean) {
         });
       }
     } catch {
-      // Fallback if isActive column is not in Prisma schema
+      // Fallback if isActive column is not defined in Prisma schema
     }
     revalidatePath('/staff');
+    revalidatePath('/settings');
     return { success: true };
   } catch (error: any) {
     console.error('Failed to toggle staff status:', error);
@@ -66,6 +98,7 @@ export async function deleteStaffMember(id: string) {
       where: { id },
     });
     revalidatePath('/staff');
+    revalidatePath('/settings');
     return { success: true };
   } catch (error: any) {
     console.error('Failed to delete staff member:', error);
