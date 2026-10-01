@@ -40,20 +40,16 @@ export async function createStaffMember(data: {
   phone?: string;
 }) {
   try {
-    const payload: Record<string, any> = {
-      name: data.name,
-      role: data.role,
-      pin: data.pin,
-    };
-    if (data.phone) {
-      payload.phone = data.phone;
-    }
     const user = await (prisma.user as any).create({
-      data: payload,
+      data: {
+        name: data.name,
+        role: data.role as any,
+        pin: data.pin,
+      },
     });
     revalidatePath('/staff');
     revalidatePath('/settings');
-    return { success: true, user, message: 'Staff created successfully' };
+    return { success: true, user, message: 'Staff member created successfully' };
   } catch (error: any) {
     console.error('Failed to create staff member:', error);
     return { success: false, error: error.message, message: error.message };
@@ -70,19 +66,18 @@ export async function updateStaffMember(
   }
 ) {
   try {
-    const payload: Record<string, any> = {};
-    if (data.name !== undefined) payload.name = data.name;
-    if (data.role !== undefined) payload.role = data.role;
-    if (data.pin !== undefined) payload.pin = data.pin;
-    if (data.phone !== undefined) payload.phone = data.phone;
+    const updateData: Record<string, any> = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.role !== undefined) updateData.role = data.role as any;
+    if (data.pin !== undefined) updateData.pin = data.pin;
 
     const user = await (prisma.user as any).update({
       where: { id },
-      data: payload,
+      data: updateData,
     });
     revalidatePath('/staff');
     revalidatePath('/settings');
-    return { success: true, user, message: 'Staff updated successfully' };
+    return { success: true, user, message: 'Staff member updated successfully' };
   } catch (error: any) {
     console.error('Failed to update staff member:', error);
     return { success: false, error: error.message, message: error.message };
