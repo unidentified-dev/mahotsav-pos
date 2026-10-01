@@ -1,69 +1,199 @@
-import Image from "next/image";
+import { prisma } from '@/lib/prisma';
+import FloorViewClient from './components/FloorViewClient';
 
-export default function Home() {
+export const dynamic = 'force-dynamic';
+
+export default async function HomePage() {
+  // 1. Fetch floor sections and tables with their latest running order
+  const sections = await prisma.section.findMany({
+    include: {
+      tables: {
+        include: {
+          orders: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { id: true, grandTotal: true },
+          },
+        },
+        orderBy: { tableNumber: 'asc' },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  // 2. Fetch categories and active menu items
+  const categories = await prisma.category.findMany({
+    include: {
+      items: {
+        orderBy: { name: 'asc' },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  // 3. Fetch inventory items
+  const inventoryItems = await prisma.inventoryItem.findMany({
+    orderBy: { currentStock: 'asc' },
+  });
+
+  // 4. Calculate accurate time windows
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  // Fetch all orders for historical & today analysis
+  const recentOrders = await prisma.order.findMany({
+    where: {
+      createdAt: { gte: thirtyDaysAgo },
+    },
+    include: {
+      items: {
+        include: {
+          menuItem: true,
+        },
+      },
+      table: {
+        include: {
+          section: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  // A settled order has a payment method recorded OR its table has been vacated
+  const isSettled = (ord: any) =>
+    Boolean(ord.paymentMethod) || ord.table?.status === 'AVAILABLE';
+
+  // Settle collections today
+  const settledOrdersToday = recentOrders.filter(
+    (ord) => new Date(ord.createdAt) >= startOfDay && isSettled(ord)
+  );
+
+  // Settle collections last 7 days
+  const settledOrdersWeek = recentOrders.filter(
+    (ord) => new Date(ord.createdAt) >= sevenDaysAgo && isSettled(ord)
+  );
+
+  // Settle collections last 30 days
+  const settledOrdersMonth = recentOrders.filter((ord) => isSettled(ord));
+
+  let totalRevenue = 0;
+  let foodGstTotal = 0;
+  let liquorVatTotal = 0;
+  let discountTotal = 0;
+
+  const restoItemMap: { [name: string]: { quantity: number; revenue: number } } = {};
+  const barItemMap: { [name: string]: { quantity: number; revenue: number } } = {};
+
+  settledOrdersToday.forEach((ord) => {
+    totalRevenue += Number(ord.grandTotal || 0);
+    foodGstTotal += Number(ord.foodGst || 0);
+    liquorVatTotal += Number(ord.liquorVat || 0);
+    discountTotal += Number(ord.discountAmount || 0);
+
+    (ord.items || []).forEach((it) => {
+      const rawName = it.menuItem?.name || 'Item';
+      const cleanName = rawName.includes('::') ? rawName.split('::')[0].trim() : rawName;
+
+      const isBar =
+        it.menuItem?.station === 'BAR' ||
+        it.menuItem?.isAlcoholic === true ||
+        ord.table?.section?.name?.toLowerCase().includes('bar');
+
+      const targetMap = isBar ? barItemMap : restoItemMap;
+      const itemQty = Number(it.quantity) || 1;
+      const itemPrice = Number(it.unitPrice) || 0;
+
+      if (!targetMap[cleanName]) {
+        targetMap[cleanName] = { quantity: 0, revenue: 0 };
+      }
+      targetMap[cleanName].quantity += itemQty;
+      targetMap[cleanName].revenue += itemPrice * itemQty;
+    });
+  });
+
+  const weekRevenue = settledOrdersWeek.reduce(
+    (sum, ord) => sum + Number(ord.grandTotal || 0),
+    0
+  );
+  const monthRevenue = settledOrdersMonth.reduce(
+    (sum, ord) => sum + Number(ord.grandTotal || 0),
+    0
+  );
+
+  const topRestoItems = Object.entries(restoItemMap)
+    .map(([name, data]) => ({ name, ...data }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 5);
+
+  const topBarItems = Object.entries(barItemMap)
+    .map(([name, data]) => ({ name, ...data }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 5);
+
+  const financialStats = {
+    totalRevenue,
+    foodGstTotal,
+    liquorVatTotal,
+    discountTotal,
+    orderCount: settledOrdersToday.length,
+    topRestoItems,
+    topBarItems,
+    initialOnlineOrders: [
+      {
+        id: 'ZOM-8831',
+        platform: 'ZOMATO',
+        customerName: 'Priya Sharma',
+        time: '12 mins ago',
+        total: 620.0,
+        status: 'NEW',
+        items: ['2x Paneer Makhanwala', '4x Butter Roti', '1x Jeera Rice'],
+      },
+      {
+        id: 'SWG-4412',
+        platform: 'SWIGGY',
+        customerName: 'Amit Patel',
+        time: '24 mins ago',
+        total: 480.0,
+        status: 'PREPARING',
+        items: ['1x Paneer Mushroom Masala', '3x Garlic Naan'],
+      },
+    ],
+  };
+
+  const estimatedCogs = totalRevenue * 0.32;
+  const estimatedExpenses = totalRevenue > 0 ? 2800 : 0;
+  const netProfit = totalRevenue - (foodGstTotal + liquorVatTotal) - estimatedCogs - estimatedExpenses;
+
+  const lowStockItems = inventoryItems.filter(
+    (i) => Number(i.currentStock) <= Number(i.minThreshold)
+  );
+
+  // Executive Owner Dashboard Summary derived from real queries
+  const ownerSummary = {
+    grossSalesToday: totalRevenue,
+    grossSalesWeek: weekRevenue > 0 ? weekRevenue : totalRevenue,
+    grossSalesMonth: monthRevenue > 0 ? monthRevenue : totalRevenue,
+    netProfitToday: netProfit > 0 ? netProfit : 0,
+    cogsAmount: estimatedCogs,
+    taxesTotal: foodGstTotal + liquorVatTotal,
+    expensesAmount: estimatedExpenses,
+    orderCount: settledOrdersToday.length,
+    lowStockCount: lowStockItems.length,
+    inventory: {
+      lowStockAlerts: lowStockItems,
+    },
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <FloorViewClient
+      sections={JSON.parse(JSON.stringify(sections))}
+      categories={JSON.parse(JSON.stringify(categories))}
+      inventoryItems={JSON.parse(JSON.stringify(inventoryItems))}
+      financialStats={financialStats}
+      ownerSummary={ownerSummary}
+    />
   );
 }

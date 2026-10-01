@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  RESTO_MANAGER
+  BAR_MANAGER
+  CHEF
+}
+
+enum OrderStatus {
+  ACTIVE
+  PAID
+  CANCELLED
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  BILLED
+  RESERVED
+}
+
+enum Station {
+  KITCHEN
+  BAR
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  pin       String   @unique
+  role      Role     @default(BAR_MANAGER)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  orders    Order[]
+}
+
+model Section {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  tables    Table[]
+}
+
+model Table {
+  id          String      @id @default(cuid())
+  tableNumber String      @unique
+  capacity    Int         @default(4)
+  status      TableStatus @default(AVAILABLE)
+  sectionId   String
+  section     Section     @relation(fields: [sectionId], references: [id])
+  orders      Order[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @default(now()) @updatedAt
+}
+
+model Category {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  station   Station    @default(KITCHEN)
+  items     MenuItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @default(now()) @updatedAt
+}
+
+model MenuItem {
+  id           String      @id @default(cuid())
+  name         String
+  price        Decimal     @default(0.0)
+  taxRate      Decimal     @default(5.0)
+  station      Station     @default(KITCHEN)
+  isVegetarian Boolean     @default(true)
+  isAlcoholic  Boolean     @default(false)
+  isItem86     Boolean     @default(false)
+  categoryId   String
+  category     Category    @relation(fields: [categoryId], references: [id])
+  orderItems   OrderItem[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @default(now()) @updatedAt
+}
+
+model Order {
+  id             String      @id @default(cuid())
+  orderNumber    Int         @default(autoincrement())
+  tableId        String
+  table          Table       @relation(fields: [tableId], references: [id])
+  userId         String?
+  server         User?       @relation(fields: [userId], references: [id])
+  status         OrderStatus @default(ACTIVE)
+  subtotal       Decimal     @default(0.0)
+  foodGst        Decimal     @default(0.0)
+  liquorVat      Decimal     @default(0.0)
+  discountType   String?
+  discountValue  Decimal     @default(0.0)
+  discountAmount Decimal     @default(0.0)
+  discountReason String?
+  grandTotal     Decimal     @default(0.0)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
+  items          OrderItem[]
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  quantity   Int      @default(1)
+  unitPrice  Decimal  @default(0.0)
+  station    Station  @default(KITCHEN)
+  isPrepared Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+model InventoryItem {
+  id             String         @id @default(cuid())
+  name           String         @unique
+  category       String         @default("Kitchen Raw")
+  unit           String         @default("kg")
+  currentStock   Decimal        @default(0.0)
+  minThreshold   Decimal        @default(5.0)
+  costPerUnit    Decimal        @default(0.0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @default(now()) @updatedAt
+  purchaseItems  PurchaseItem[]
+}
+
+model SupplierBill {
+  id             String         @id @default(cuid())
+  billNumber     String
+  supplierName   String
+  billDate       DateTime       @default(now())
+  totalAmount    Decimal        @default(0.0)
+  notes          String?
+  items          PurchaseItem[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @default(now()) @updatedAt
+}
+
+model PurchaseItem {
+  id              String        @id @default(cuid())
+  billId          String
+  bill            SupplierBill  @relation(fields: [billId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  quantity        Decimal       @default(0.0)
+  unitCost        Decimal       @default(0.0)
+  totalCost       Decimal       @default(0.0)
+}
