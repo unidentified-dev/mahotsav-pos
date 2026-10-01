@@ -3,21 +3,24 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 
+// Fetch all staff members
 export async function getStaffMembers() {
   try {
     return await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
     });
   } catch (error) {
-    console.error('Failed to get staff:', error);
+    console.error('Failed to get staff members:', error);
     return [];
   }
 }
 
+// Alias for getStaffMembers
 export async function getAllStaff() {
   return getStaffMembers();
 }
 
+// Create a new staff member
 export async function createStaffMember(data: {
   name: string;
   role: string;
@@ -42,6 +45,7 @@ export async function createStaffMember(data: {
   }
 }
 
+// Update existing staff details
 export async function updateStaffMember(
   id: string,
   data: {
@@ -55,9 +59,9 @@ export async function updateStaffMember(
     const user = await prisma.user.update({
       where: { id },
       data: {
-        ...(data.name && { name: data.name }),
-        ...(data.role && { role: data.role as any }),
-        ...(data.pin && { pin: data.pin }),
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.role !== undefined && { role: data.role as any }),
+        ...(data.pin !== undefined && { pin: data.pin }),
         ...(data.phone !== undefined && { phone: data.phone || null }),
       },
     });
@@ -70,18 +74,15 @@ export async function updateStaffMember(
   }
 }
 
+// Toggle staff active/inactive status
 export async function toggleStaffStatus(id: string, currentStatus?: boolean) {
   try {
-    try {
-      const user = await prisma.user.findUnique({ where: { id } });
-      if (user && 'isActive' in user) {
-        await prisma.user.update({
-          where: { id },
-          data: { isActive: !(user as any).isActive } as any,
-        });
-      }
-    } catch {
-      // Fallback if isActive column is not defined in Prisma schema
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (user && 'isActive' in user) {
+      await prisma.user.update({
+        where: { id },
+        data: { isActive: !(user as any).isActive } as any,
+      });
     }
     revalidatePath('/staff');
     revalidatePath('/settings');
@@ -92,6 +93,7 @@ export async function toggleStaffStatus(id: string, currentStatus?: boolean) {
   }
 }
 
+// Delete staff member
 export async function deleteStaffMember(id: string) {
   try {
     await prisma.user.delete({
