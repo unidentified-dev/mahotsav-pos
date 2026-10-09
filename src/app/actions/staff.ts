@@ -33,17 +33,12 @@ export async function verifyUserPin(pin: string) {
   }
 }
 
-export async function createStaffMember(data: {
-  name: string;
-  role: string;
-  pin: string;
-  phone?: string;
-}) {
+export async function createStaffMember(data: any) {
   try {
     const user = await (prisma.user as any).create({
       data: {
         name: data.name,
-        role: data.role as any,
+        role: data.role,
         pin: data.pin,
       },
     });
@@ -56,19 +51,11 @@ export async function createStaffMember(data: {
   }
 }
 
-export async function updateStaffMember(
-  id: string,
-  data: {
-    name?: string;
-    role?: string;
-    pin?: string;
-    phone?: string;
-  }
-) {
+export async function updateStaffMember(id: string, data: any) {
   try {
     const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
-    if (data.role !== undefined) updateData.role = data.role as any;
+    if (data.role !== undefined) updateData.role = data.role;
     if (data.pin !== undefined) updateData.pin = data.pin;
 
     const user = await (prisma.user as any).update({
