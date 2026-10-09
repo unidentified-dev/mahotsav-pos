@@ -1,3 +1,4 @@
+Set-Content -Path "next.config.mjs" -Value @'
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -9,3 +10,4 @@ const nextConfig = {
 };
 
 export default nextConfig;
+'@
